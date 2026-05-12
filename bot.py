@@ -168,6 +168,44 @@ async def games_players(interaction: discord.Interaction, game: str):
         ephemeral=True
     )
 
+@games_group.command(name="user_games", description="See all games a specific user has on their list")
+@app_commands.describe(user="The user to look up")
+async def games_user_games(interaction: discord.Interaction, user: discord.Member):
+    data = load_data()
+    uid  = str(user.id)
+    subs = data["subscriptions"].get(uid, [])
+    if not subs:
+        await interaction.response.send_message(
+            f"**{user.display_name}** has no games on their list.", ephemeral=True
+        )
+        return
+    game_list = "\n".join(f"• {g}" for g in sorted(subs))
+    await interaction.response.send_message(
+        f"**{user.display_name}'s games ({len(subs)}):**\n{game_list}", ephemeral=True
+    )
+
+@games_group.command(name="game_users", description="See all users who have a specific game on their list")
+@app_commands.autocomplete(game=game_autocomplete)
+@app_commands.describe(game="The game to look up")
+async def games_game_users(interaction: discord.Interaction, game: str):
+    data    = load_data()
+    guild   = interaction.guild
+    players = []
+    for uid, games in data["subscriptions"].items():
+        if game in games:
+            member = guild.get_member(int(uid))
+            if member:
+                players.append(member.display_name)
+    if not players:
+        await interaction.response.send_message(
+            f"Nobody has **{game}** on their list.", ephemeral=True
+        )
+        return
+    player_list = "\n".join(f"• {p}" for p in sorted(players))
+    await interaction.response.send_message(
+        f"**{len(players)} player(s) with {game}:**\n{player_list}", ephemeral=True
+    )
+
 tree.add_command(games_group)
 
 # ── /admin command group ──────────────────────────────────────────────────────
@@ -216,44 +254,6 @@ async def admin_import_roles(interaction: discord.Interaction):
         f"added **{imported_subs} new subscriptions** to the database.\n"
         f"You can now safely delete the game roles from your server.",
         ephemeral=True
-    )
-
-@admin_group.command(name="user_games", description="See all games a specific user has on their list")
-@app_commands.describe(user="The user to look up")
-async def admin_user_games(interaction: discord.Interaction, user: discord.Member):
-    data = load_data()
-    uid  = str(user.id)
-    subs = data["subscriptions"].get(uid, [])
-    if not subs:
-        await interaction.response.send_message(
-            f"**{user.display_name}** has no games on their list.", ephemeral=True
-        )
-        return
-    game_list = "\n".join(f"• {g}" for g in sorted(subs))
-    await interaction.response.send_message(
-        f"**{user.display_name}'s games ({len(subs)}):**\n{game_list}", ephemeral=True
-    )
-
-@admin_group.command(name="game_users", description="See all users who have a specific game on their list")
-@app_commands.autocomplete(game=game_autocomplete)
-@app_commands.describe(game="The game to look up")
-async def admin_game_users(interaction: discord.Interaction, game: str):
-    data    = load_data()
-    guild   = interaction.guild
-    players = []
-    for uid, games in data["subscriptions"].items():
-        if game in games:
-            member = guild.get_member(int(uid))
-            if member:
-                players.append(member.display_name)
-    if not players:
-        await interaction.response.send_message(
-            f"Nobody has **{game}** on their list.", ephemeral=True
-        )
-        return
-    player_list = "\n".join(f"• {p}" for p in sorted(players))
-    await interaction.response.send_message(
-        f"**{len(players)} player(s) with {game}:**\n{player_list}", ephemeral=True
     )
 
 tree.add_command(admin_group)
