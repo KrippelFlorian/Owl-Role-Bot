@@ -290,6 +290,8 @@ async def post_menu(guild: discord.Guild):
         await channel.send(view=view)
 
 
+
+
 # ── /admin command group ──────────────────────────────────────────────────────
 admin_group = app_commands.Group(
     name="admin",
@@ -338,6 +340,20 @@ async def admin_refresh_menu(interaction: discord.Interaction):
 @admin_group.command(name="user_games", description="See all games a specific user has on their list")
 @app_commands.describe(user="The user to look up")
 async def admin_user_games(interaction: discord.Interaction, user: discord.Member):
+    data = load_data()
+    uid  = str(user.id)
+    subs = data["subscriptions"].get(uid, [])
+    if not subs:
+        await interaction.response.send_message(f"**{user.display_name}** has no games on their list.", ephemeral=True)
+        return
+    game_list = "\n".join(f"• {g}" for g in sorted(subs))
+    await interaction.response.send_message(
+        f"**{user.display_name}'s games ({len(subs)}):**\n{game_list}", ephemeral=True
+    )
+
+@tree.command(name="usergames", description="See all games a specific user has on their list")
+@app_commands.describe(user="The user to look up")
+async def usergames(interaction: discord.Interaction, user: discord.Member):
     data = load_data()
     uid  = str(user.id)
     subs = data["subscriptions"].get(uid, [])
