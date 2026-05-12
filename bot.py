@@ -196,6 +196,18 @@ def make_game_rows(games: list[str]) -> list[discord.ui.View]:
                     return
                 subs[uid].append(g)
                 save_data(data)
+                # If an LFG channel for this game is already open, grant access immediately
+                guild = interaction.guild
+                category = discord.utils.get(guild.categories, name=LFG_CATEGORY_NAME)
+                if category:
+                    existing = discord.utils.get(category.text_channels, name=channel_name_for(g))
+                    if existing:
+                        await existing.set_permissions(interaction.user, view_channel=True, send_messages=True)
+                        await interaction.response.send_message(
+                            f"✅ Added **{g}** to your list! There's already an open session: {existing.mention}",
+                            ephemeral=True
+                        )
+                        return
                 await interaction.response.send_message(f"✅ Added **{g}** to your list!", ephemeral=True)
             add_btn.callback = add_cb
             view.add_item(add_btn)
