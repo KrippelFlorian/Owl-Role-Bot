@@ -95,15 +95,20 @@ async def run_lfg(interaction: discord.Interaction, game: str, message: str = ""
             )
             return
 
+    # Only allow LFG if the user has the game on their list
+    if game not in subs.get(str(interaction.user.id), []):
+        await interaction.followup.send(
+            f"❌ You need to add **{game}** to your list first before looking for players!",
+            ephemeral=True
+        )
+        return
+
     members_with_game: list[discord.Member] = []
     for uid, games in subs.items():
         if game in games:
             member = guild.get_member(int(uid))
             if member:
                 members_with_game.append(member)
-
-    if interaction.user not in members_with_game:
-        members_with_game.append(interaction.user)
 
     overwrites = {
         guild.default_role: discord.PermissionOverwrite(view_channel=False),
