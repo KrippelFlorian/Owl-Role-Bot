@@ -24,9 +24,6 @@ GAMES = [
     "Rematch", "Subnautica 2", "Eldenring / Nightreign",
 ]
 
-# Discord select menus max 25 options, so split into pages of 25
-GAME_PAGES = [GAMES[i:i+25] for i in range(0, len(GAMES), 25)]
-
 # ── Storage helpers ───────────────────────────────────────────────────────────
 def load_data() -> dict:
     if os.path.exists(DATA_FILE):
@@ -153,177 +150,140 @@ async def run_lfg(interaction: discord.Interaction, game: str, message: str = ""
 
     await interaction.followup.send(f"✅ Created a private session: {channel.mention}", ephemeral=True)
 
-# ── UI: game select menus ─────────────────────────────────────────────────────
-def make_game_options(page: list[str]) -> list[discord.SelectOption]:
-    return [discord.SelectOption(label=g, value=g) for g in page]
+# ── UI: per-game button rows ──────────────────────────────────────────────────
+# Each game gets one row: [🎮 Game Name] [➕ Add] [➖ Remove] [🔍 LFG] [👥 Who plays?]
+# Discord allows max 5 rows of buttons per message → 5 games per message.
+# With 36 games that means 8 messages, which is fine.
 
-# ── Panel 1: Manage my games ──────────────────────────────────────────────────
-class AddGameSelect(discord.ui.Select):
-    def __init__(self, page: list[str]):
-        super().__init__(
-            placeholder="Select a game to add...",
-            options=make_game_options(page),
-            custom_id=f"add_game_{page[0]}",
-        )
+GAMES_PER_MESSAGE = 5  # 5 rows × 1 game each
 
-    async def callback(self, interaction: discord.Interaction):
-        game = self.values[0]
-        data = load_data()
-        uid  = str(interaction.user.id)
-        subs = data["subscriptions"]
-        if uid not in subs:
-            subs[uid] = []
-        if game in subs[uid]:
-            await interaction.response.send_message(f"You already have **{game}** on your list.", ephemeral=True)
-            return
-        subs[uid].append(game)
-        save_data(data)
-        await interaction.response.send_message(f"✅ Added **{game}** to your list!", ephemeral=True)
-
-class RemoveGameSelect(discord.ui.Select):
-    def __init__(self, page: list[str]):
-        super().__init__(
-            placeholder="Select a game to remove...",
-            options=make_game_options(page),
-            custom_id=f"remove_game_{page[0]}",
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        game = self.values[0]
-        data = load_data()
-        uid  = str(interaction.user.id)
-        subs = data["subscriptions"]
-        if uid not in subs or game not in subs[uid]:
-            await interaction.response.send_message(f"**{game}** is not on your list.", ephemeral=True)
-            return
-        subs[uid].remove(game)
-        save_data(data)
-        await interaction.response.send_message(f"🗑️ Removed **{game}** from your list.", ephemeral=True)
-
-class MyGamesButton(discord.ui.Button):
-    def __init__(self):
-        super().__init__(label="📋 My Games", style=discord.ButtonStyle.secondary, custom_id="my_games")
-
-    async def callback(self, interaction: discord.Interaction):
-        data = load_data()
-        uid  = str(interaction.user.id)
-        subs = data["subscriptions"].get(uid, [])
-        if not subs:
-            await interaction.response.send_message(
-                "You haven't added any games yet. Use the dropdowns above!", ephemeral=True
+def make_game_rows(games: list[str]) -> list[discord.ui.View]:
+    """Return one View per chunk of GAMES_PER_MESSAGE games."""
+    views = []
+    for chunk_start in range(0, len(games), GAMES_PER_MESSAGE):
+        chunk = games[chunk_start:chunk_start + GAMES_PER_MESSAGE]
+        view  = discord.ui.View(timeout=None)
+        for game in chunk:
+            safe = game.replace(" ", "_").replace("/", "")[:50]
+            # Game label button (disabled, just for display)
+            view.add_item(discord.ui.Button(
+                label=game,
+                style=discord.ButtonStyle.secondary,
+                custom_id=f"label_{safe}",
+                disabled=True,
+                row=chunk.index(game),
+            ))
+            # ➕ Add
+            add_btn = discord.ui.Button(
+                label="➕ Add",
+                style=discord.ButtonStyle.success,
+                custom_id=f"add_{safe}",
+                row=chunk.index(game),
             )
-            return
-        game_list = "\n".join(f"• {g}" for g in sorted(subs))
-        await interaction.response.send_message(f"**Your games ({len(subs)}):**\n{game_list}", ephemeral=True)
+            async def add_cb(interaction: discord.Interaction, g=game):
+                data = load_data()
+                uid  = str(interaction.user.id)
+                subs = data["subscriptions"]
+                if uid not in subs:
+                    subs[uid] = []
+                if g in subs[uid]:
+                    await interaction.response.send_message(f"You already have **{g}** on your list.", ephemeral=True)
+                    return
+                subs[uid].append(g)
+                save_data(data)
+                await interaction.response.send_message(f"✅ Added **{g}** to your list!", ephemeral=True)
+            add_btn.callback = add_cb
+            view.add_item(add_btn)
 
-class ManageGamesView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        # Add a dropdown per page of games
-        for page in GAME_PAGES:
-            self.add_item(AddGameSelect(page))
-        for page in GAME_PAGES:
-            self.add_item(RemoveGameSelect(page))
-        self.add_item(MyGamesButton())
+            # ➖ Remove
+            rem_btn = discord.ui.Button(
+                label="➖ Remove",
+                style=discord.ButtonStyle.danger,
+                custom_id=f"remove_{safe}",
+                row=chunk.index(game),
+            )
+            async def rem_cb(interaction: discord.Interaction, g=game):
+                data = load_data()
+                uid  = str(interaction.user.id)
+                subs = data["subscriptions"]
+                if uid not in subs or g not in subs[uid]:
+                    await interaction.response.send_message(f"**{g}** is not on your list.", ephemeral=True)
+                    return
+                subs[uid].remove(g)
+                save_data(data)
+                await interaction.response.send_message(f"🗑️ Removed **{g}** from your list.", ephemeral=True)
+            rem_btn.callback = rem_cb
+            view.add_item(rem_btn)
 
-# ── Panel 2: Looking for group ────────────────────────────────────────────────
-class LFGSelect(discord.ui.Select):
-    def __init__(self, page: list[str]):
-        super().__init__(
-            placeholder="Select a game to find players...",
-            options=make_game_options(page),
-            custom_id=f"lfg_{page[0]}",
-        )
+            # 🔍 LFG
+            lfg_btn = discord.ui.Button(
+                label="🔍 LFG",
+                style=discord.ButtonStyle.primary,
+                custom_id=f"lfg_{safe}",
+                row=chunk.index(game),
+            )
+            async def lfg_cb(interaction: discord.Interaction, g=game):
+                await run_lfg(interaction, g)
+            lfg_btn.callback = lfg_cb
+            view.add_item(lfg_btn)
 
-    async def callback(self, interaction: discord.Interaction):
-        await run_lfg(interaction, self.values[0])
+            # 👥 Who plays?
+            who_btn = discord.ui.Button(
+                label="👥 Who plays?",
+                style=discord.ButtonStyle.secondary,
+                custom_id=f"who_{safe}",
+                row=chunk.index(game),
+            )
+            async def who_cb(interaction: discord.Interaction, g=game):
+                data  = load_data()
+                guild = interaction.guild
+                players = []
+                for uid, games in data["subscriptions"].items():
+                    if g in games:
+                        member = guild.get_member(int(uid))
+                        if member:
+                            players.append(member.display_name)
+                if not players:
+                    await interaction.response.send_message(f"Nobody has **{g}** on their list yet.", ephemeral=True)
+                    return
+                player_list = "\n".join(f"• {p}" for p in sorted(players))
+                await interaction.response.send_message(
+                    f"**{len(players)} player(s) with {g}:**\n{player_list}", ephemeral=True
+                )
+            who_btn.callback = who_cb
+            view.add_item(who_btn)
 
-class LFGView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        for page in GAME_PAGES:
-            self.add_item(LFGSelect(page))
+        views.append(view)
+    return views
 
-# ── Panel 3: Browse players ───────────────────────────────────────────────────
-class GameUsersSelect(discord.ui.Select):
-    def __init__(self, page: list[str]):
-        super().__init__(
-            placeholder="Who plays...?",
-            options=make_game_options(page),
-            custom_id=f"game_users_{page[0]}",
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        game  = self.values[0]
-        data  = load_data()
-        guild = interaction.guild
-        players = []
-        for uid, games in data["subscriptions"].items():
-            if game in games:
-                member = guild.get_member(int(uid))
-                if member:
-                    players.append(member.display_name)
-        if not players:
-            await interaction.response.send_message(f"Nobody has **{game}** on their list yet.", ephemeral=True)
-            return
-        player_list = "\n".join(f"• {p}" for p in sorted(players))
-        await interaction.response.send_message(
-            f"**{len(players)} player(s) with {game}:**\n{player_list}", ephemeral=True
-        )
-
-class UserGamesButton(discord.ui.Button):
-    def __init__(self):
-        super().__init__(label="🔍 Look up a user's games", style=discord.ButtonStyle.secondary, custom_id="user_games_prompt")
-
-    async def callback(self, interaction: discord.Interaction):
-        await interaction.response.send_message(
-            "Use `/games user_games @user` to look up a specific user's games.",
-            ephemeral=True
-        )
-
-class BrowseView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        for page in GAME_PAGES:
-            self.add_item(GameUsersSelect(page))
-        self.add_item(UserGamesButton())
-
-# ── Post / refresh menu panels ────────────────────────────────────────────────
+# ── Post / refresh menu ───────────────────────────────────────────────────────
 async def post_menu(guild: discord.Guild):
-    """Find or create #game-menu and post/update the three UI panels."""
     channel = discord.utils.get(guild.text_channels, name=MENU_CHANNEL_NAME)
     if not channel:
         channel = await guild.create_text_channel(MENU_CHANNEL_NAME)
 
-    # Wipe old bot messages so we always have fresh panels
-    await channel.purge(limit=20, check=lambda m: m.author == guild.me)
+    # Wipe old bot messages
+    await channel.purge(limit=100, check=lambda m: m.author == guild.me)
 
-    embed1 = discord.Embed(
-        title="🎮 Manage Your Games",
+    # Header
+    header = discord.Embed(
+        title="🎮 Game Menu",
         description=(
-            "Use the dropdowns to add or remove games from your list.\n"
-            "You'll automatically get access to private LFG channels for games on your list."
+            "**➕ Add** — add a game to your list\n"
+            "**➖ Remove** — remove a game from your list\n"
+            "**🔍 LFG** — open a private channel to find players\n"
+            "**👥 Who plays?** — see who has this game on their list\n\n"
+            "*All responses are only visible to you.*"
         ),
         color=0x5865F2,
     )
-    await channel.send(embed=embed1, view=ManageGamesView())
+    await channel.send(embed=header)
 
-    embed2 = discord.Embed(
-        title="🔍 Looking For Group",
-        description=(
-            "Select a game to open a private channel and ping everyone who plays it.\n"
-            "The channel auto-deletes after **5 hours** of inactivity."
-        ),
-        color=0x57F287,
-    )
-    await channel.send(embed=embed2, view=LFGView())
+    # One message per 5 games
+    views = make_game_rows(GAMES)
+    for view in views:
+        await channel.send(view=view)
 
-    embed3 = discord.Embed(
-        title="👥 Browse Players",
-        description="See who else has a specific game on their list.",
-        color=0xFEE75C,
-    )
-    await channel.send(embed=embed3, view=BrowseView())
 
 # ── /admin command group ──────────────────────────────────────────────────────
 admin_group = app_commands.Group(
@@ -385,11 +345,6 @@ async def admin_user_games(interaction: discord.Interaction, user: discord.Membe
     )
 
 tree.add_command(admin_group)
-
-# ── Keep UI alive after restart ───────────────────────────────────────────────
-bot.add_view(ManageGamesView())
-bot.add_view(LFGView())
-bot.add_view(BrowseView())
 
 # ── Reset inactivity timer on messages ────────────────────────────────────────
 @bot.event
