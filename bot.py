@@ -7,7 +7,7 @@ import os
 # ── Config ────────────────────────────────────────────────────────────────────
 LFG_CATEGORY_NAME = "Games"
 MENU_CHANNEL_NAME = "game-menu"
-DATA_FILE         = "games_data.json"
+DATA_FILE         = "/app/data/games_data.json"
 
 GAMES = [
     "Grounded", "Phasmophobia", "Minecraft", "Calamity", "Isaac",
