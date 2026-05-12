@@ -10,7 +10,7 @@ from datetime import datetime
 LFG_CATEGORY_NAME = "Looking For Group"  # category that holds temp channels
 DATA_FILE         = "games_data.json"    # stores who plays what
 PING_COOLDOWN     = 300                  # seconds between /lfg calls per game (5 min)
-CHANNEL_TIMEOUT   = 18000                 # seconds of inactivity before auto-delete (30 min)
+CHANNEL_TIMEOUT   = 18000                # seconds of inactivity before auto-delete (30 min)
 
 GAMES = [
     "Grounded", "Phasmophobia", "Minecraft", "Calamity", "Isaac",
@@ -169,6 +169,94 @@ async def games_players(interaction: discord.Interaction, game: str):
     )
 
 tree.add_command(games_group)
+
+# ── /admin command group ──────────────────────────────────────────────────────
+admin_group = app_commands.Group(
+    name="admin",
+    description="Admin tools (requires Manage Server permission)",
+    default_permissions=discord.Permissions(manage_guild=True),
+)
+
+@admin_group.command(name="import_roles", description="Import everyone's game roles into the bot's database")
+async def admin_import_roles(interaction: discord.Interaction):
+    """
+    Scans every member's roles, matches them against the GAMES list,
+    and saves them as subscriptions — replacing the old role-based system.
+    """
+    await interaction.response.defer(ephemeral=True)
+    guild = interaction.guild
+    data  = load_data()
+    subs  = data["subscriptions"]
+
+    # Build a lookup: lowercase role name → canonical game name
+    game_lookup = {g.lower(): g for g in GAMES}
+
+    imported_users = 0
+    imported_subs  = 0
+
+    for member in guild.members:
+        if member.bot:
+            continue
+        matched = []
+        for role in member.roles:
+            canonical = game_lookup.get(role.name.lower())
+            if canonical:
+                matched.append(canonical)
+        if matched:
+            uid = str(member.id)
+            existing = set(subs.get(uid, []))
+            new_games = existing | set(matched)
+            subs[uid] = list(new_games)
+            imported_users += 1
+            imported_subs  += len(new_games - existing)
+
+    save_data(data)
+    await interaction.followup.send(
+        f"✅ Import complete! Found game roles for **{imported_users} members**, "
+        f"added **{imported_subs} new subscriptions** to the database.\n"
+        f"You can now safely delete the game roles from your server.",
+        ephemeral=True
+    )
+
+@admin_group.command(name="user_games", description="See all games a specific user has on their list")
+@app_commands.describe(user="The user to look up")
+async def admin_user_games(interaction: discord.Interaction, user: discord.Member):
+    data = load_data()
+    uid  = str(user.id)
+    subs = data["subscriptions"].get(uid, [])
+    if not subs:
+        await interaction.response.send_message(
+            f"**{user.display_name}** has no games on their list.", ephemeral=True
+        )
+        return
+    game_list = "\n".join(f"• {g}" for g in sorted(subs))
+    await interaction.response.send_message(
+        f"**{user.display_name}'s games ({len(subs)}):**\n{game_list}", ephemeral=True
+    )
+
+@admin_group.command(name="game_users", description="See all users who have a specific game on their list")
+@app_commands.autocomplete(game=game_autocomplete)
+@app_commands.describe(game="The game to look up")
+async def admin_game_users(interaction: discord.Interaction, game: str):
+    data    = load_data()
+    guild   = interaction.guild
+    players = []
+    for uid, games in data["subscriptions"].items():
+        if game in games:
+            member = guild.get_member(int(uid))
+            if member:
+                players.append(member.display_name)
+    if not players:
+        await interaction.response.send_message(
+            f"Nobody has **{game}** on their list.", ephemeral=True
+        )
+        return
+    player_list = "\n".join(f"• {p}" for p in sorted(players))
+    await interaction.response.send_message(
+        f"**{len(players)} player(s) with {game}:**\n{player_list}", ephemeral=True
+    )
+
+tree.add_command(admin_group)
 
 # ── /lfg command ──────────────────────────────────────────────────────────────
 @tree.command(name="lfg", description="Looking for group — opens a private channel for your game")
