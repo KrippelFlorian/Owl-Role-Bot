@@ -10,7 +10,7 @@ from datetime import datetime
 LFG_CATEGORY_NAME = "Looking For Group"  # category that holds temp channels
 DATA_FILE         = "games_data.json"    # stores who plays what
 PING_COOLDOWN     = 300                  # seconds between /lfg calls per game (5 min)
-CHANNEL_TIMEOUT   = 18000                # seconds of inactivity before auto-delete (30 min)
+CHANNEL_TIMEOUT   = 18000                # seconds of inactivity before auto-delete (5 hours)
 
 GAMES = [
     "Grounded", "Phasmophobia", "Minecraft", "Calamity", "Isaac",
@@ -62,7 +62,7 @@ async def schedule_deletion(channel: discord.TextChannel, delay: int):
     await asyncio.sleep(delay)
     try:
         await channel.send(
-            f"⏰ This channel has been inactive for **{delay // 60} minutes** and will now be deleted."
+            f"⏰ This channel has been inactive for **{delay // 3600} hours** and will now be deleted."
         )
         await asyncio.sleep(5)
         await channel.delete(reason="LFG session expired")
@@ -344,13 +344,13 @@ async def lfg(interaction: discord.Interaction, game: str, message: str = ""):
             f"🎮 **{interaction.user.display_name}** is looking for people to play **{game}**!{extra}\n"
             f"{mentions}\n\n"
             f"🔒 Only people with **{game}** on their list can see this channel.\n"
-            f"⏰ It will auto-delete after **{CHANNEL_TIMEOUT // 60} minutes** of inactivity."
+            f"⏰ It will auto-delete after **{CHANNEL_TIMEOUT // 3600} hours** of inactivity."
         )
     else:
         intro = (
             f"🎮 **{interaction.user.display_name}** is looking for people to play **{game}**!{extra}\n\n"
             f"*Nobody else has this game on their list yet — tell your friends to use `/games add {game}`!*\n"
-            f"⏰ This channel will auto-delete after **{CHANNEL_TIMEOUT // 60} minutes** of inactivity."
+            f"⏰ This channel will auto-delete after **{CHANNEL_TIMEOUT // 3600} hours** of inactivity."
         )
 
     await channel.send(intro)
